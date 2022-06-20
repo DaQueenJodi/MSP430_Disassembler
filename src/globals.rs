@@ -1,6 +1,7 @@
 use bitvec::{prelude::*, slice::BitSlice};
+use core::fmt;
 use lazy_static::lazy_static;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::write};
 lazy_static! {
     pub static ref JUMP_MAP: HashMap<u8, JmpOpcode> = {
         use JmpOpcode::*;
@@ -27,7 +28,7 @@ lazy_static! {
         m.insert(0b110, RETI);
         m
     };
-    pub static ref TWO_MAP: HashMap<&'static BitSlice, TwoOpcode> = {
+    pub static ref TWO_MAP: HashMap<u8, TwoOpcode> = {
         use TwoOpcode::*;
         let mut m = HashMap::new();
         m.insert(0b0100, MOV);
@@ -62,6 +63,7 @@ lazy_static! {
     };
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum JmpOpcode {
     JNE,
     JEQ,
@@ -72,7 +74,7 @@ pub enum JmpOpcode {
     JL,
     JMP,
 }
-
+#[derive(Clone, Copy, Debug)]
 pub enum OneOpcode {
     RRC,
     SWPB,
@@ -82,6 +84,7 @@ pub enum OneOpcode {
     CALL,
     RETI,
 }
+#[derive(Clone, Copy, Debug)]
 pub enum TwoOpcode {
     MOV,
     ADD,
@@ -97,12 +100,7 @@ pub enum TwoOpcode {
     AND,
 }
 
-pub enum Opcode {
-    JMP(JmpOpcode),
-    ONE(OneOpcode),
-    TWO(TwoOpcode),
-}
-
+#[derive(Clone, Copy, Debug)]
 pub enum AddressMode {
     Direct,            // Rn
     Indexed,           // (offset)Rn
@@ -110,23 +108,31 @@ pub enum AddressMode {
     IndirectIncrement, // @Rn+
 }
 
-struct DestReg(u8);
-struct SrcReg(u8);
-struct Bbit(bool);
+#[derive(Clone, Copy, Debug)]
+pub struct DestReg(pub u8);
+#[derive(Clone, Copy, Debug)]
+pub struct SrcReg(pub u8);
+#[derive(Clone, Copy, Debug)]
+pub struct Bbit(pub bool);
 
+#[derive(Clone, Copy, Debug)]
+pub struct Offset(pub u16);
+
+#[derive(Clone, Copy, Debug)]
 pub enum Instruction {
+    None,
     JMP {
-        condition: Opcode,
-        offset: DestReg,
+        condition: JmpOpcode,
+        offset: Offset,
     },
     ONE {
-        opcode: Opcode,
+        opcode: OneOpcode,
         b: Bbit,
         dam: AddressMode,
         dest: DestReg,
     },
     TWO {
-        opcode: Opcode,
+        opcode: TwoOpcode,
         src: SrcReg,
         dam: AddressMode,
         b: Bbit,
@@ -135,9 +141,92 @@ pub enum Instruction {
     },
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum InstructionFlavor {
     JMP,
     ONE,
     TWO,
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> fmt::Result {
+        use AddressMode::*;
+        match self {
+            Instruction::JMP {
+                condition, offset, ..
+            } => {
+                let offset = offset.0;
+                write!(f, "{condition:?} {offset:#x}")
+            }
+            Instruction::ONE {
+                opcode,
+                b,
+                dam,
+                dest,
+            } => {
+                let indirect = match dam {
+                    Indirect | IndirectIncrement => "@",
+                    _ => "",
+                };
+                let increment = match dam {
+                    IndirectIncrement => "+",
+                    _ => "",
+                };
+                write!(f, "{opcode:?}{b}  {indirect}{dest}{increment}")
+            }
+            Instruction::TWO {
+                opcode,
+                src,
+                dam,
+                b,
+                sam,
+                dest,
+            } => {
+                let indirect = match dam {
+                    Indirect => "@",
+                    IndirectIncrement => "@",
+                    _ => "",
+                };
+                let increment = match dam {
+                    IndirectIncrement => "+",
+                    _ => "",
+                };
+                write!(f, "{opcode:?}{b}  {indirect}{dest}{increment}, {src}")
+            }
+            Instruction::None => {
+                write!(f, "Invalid Instruction!")
+            }
+        }
+    }
+}
+
+impl fmt::Display for Bbit {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self.0 {
+                true => ".b",
+                false => "",
+            }
+        )
+    }
+}
+
+impl fmt::Display for SrcReg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "r{}", self.0)
+    }
+}
+
+impl fmt::Display for DestReg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "r{}", self.0)
+    }
+}
+
+enum INDEXING {
+    TWO,  // both src and dst are indexing
+    ONE,  // either src or dst are indexing
+    NONE, // none of the registers are indexing
 }
