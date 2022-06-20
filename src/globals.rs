@@ -53,15 +53,49 @@ lazy_static! {
         m.insert(0b01, Indexed);
         m.insert(0b10, Indirect);
         m.insert(0b11, IndirectIncrement);
-
-
-        // 1 bit (for dest)
-        //m.insert(bits![0], Direct);
-        //m.insert(bits![1], Indirect);
-
         m
     };
 }
+
+pub struct CurrentBinaryScope {
+    pub index: usize,
+    pub current_word: Word,
+    pub next_word: Word,
+    pub next_two_word: Word,
+}
+
+impl CurrentBinaryScope {
+    // returns 0/1/2 depending on what offset of `vec` does not exist
+    pub fn step(&mut self, vec: &Vec<Word>, result: Option<u8>) -> Option<u8> {
+        self.index += 1;
+
+        if result == Some(1) {
+            panic!("welp");
+        }
+
+        self.current_word = match vec.get(self.index) {
+            Some(word) => *word,
+            _ => return Some(0),
+        };
+
+        if result == Some(2) {
+            panic!("welp");
+        }
+
+        self.next_word = match vec.get(self.index + 1) {
+            Some(word) => *word,
+            _ => return Some(1),
+        };
+        self.next_two_word = match vec.get(self.index + 2) {
+            Some(word) => *word,
+            _ => return Some(2),
+        };
+        None
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Word(pub u16);
 
 #[derive(Clone, Copy, Debug)]
 pub enum JmpOpcode {
@@ -100,15 +134,17 @@ pub enum TwoOpcode {
     AND,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AddressMode {
     Direct,            // Rn
     Indexed,           // (offset)Rn
     Indirect,          // @Rn
     IndirectIncrement, // @Rn+
 }
-
 #[derive(Clone, Copy, Debug)]
+pub struct Indexing(pub u8);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DestReg(pub u8);
 #[derive(Clone, Copy, Debug)]
 pub struct SrcReg(pub u8);
@@ -164,6 +200,10 @@ impl fmt::Display for Instruction {
                 dam,
                 dest,
             } => {
+                if dam == &AddressMode::IndirectIncrement && dest == &DestReg(0) {
+                    //write!(f, "{opcode:?}{b} ")
+                }
+
                 let indirect = match dam {
                     Indirect | IndirectIncrement => "@",
                     _ => "",
@@ -182,16 +222,15 @@ impl fmt::Display for Instruction {
                 sam,
                 dest,
             } => {
-                let indirect = match dam {
-                    Indirect => "@",
-                    IndirectIncrement => "@",
+                let indirect = match sam {
+                    Indirect | IndirectIncrement => "@",
                     _ => "",
                 };
-                let increment = match dam {
+                let increment = match sam {
                     IndirectIncrement => "+",
                     _ => "",
                 };
-                write!(f, "{opcode:?}{b}  {indirect}{dest}{increment}, {src}")
+                write!(f, "{opcode:?}{b}  {indirect}{src}{increment}, {dest}")
             }
             Instruction::None => {
                 write!(f, "Invalid Instruction!")
@@ -223,10 +262,4 @@ impl fmt::Display for DestReg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "r{}", self.0)
     }
-}
-
-enum INDEXING {
-    TWO,  // both src and dst are indexing
-    ONE,  // either src or dst are indexing
-    NONE, // none of the registers are indexing
 }
