@@ -57,23 +57,23 @@ lazy_static! {
     };
 }
 
-pub struct CurrentBinaryScope {
+pub struct CurrentBinaryScope<'w> {
     pub index: usize,
     pub current_word: Word,
     pub next_word: Word,
-    pub next_two_word: Word,
+    pub vec: &'w Vec<Word>,
 }
 
-impl CurrentBinaryScope {
+impl CurrentBinaryScope<'_> {
     // returns 0/1/2 depending on what offset of `vec` does not exist
-    pub fn step(&mut self, vec: &Vec<Word>, result: Option<u8>) -> Option<u8> {
+    pub fn step(&mut self, result: Option<u8>) -> Option<u8> {
         self.index += 1;
 
         if result == Some(1) {
             panic!("welp");
         }
 
-        self.current_word = match vec.get(self.index) {
+        self.current_word = match self.vec.get(self.index) {
             Some(word) => *word,
             _ => return Some(0),
         };
@@ -82,15 +82,16 @@ impl CurrentBinaryScope {
             panic!("welp");
         }
 
-        self.next_word = match vec.get(self.index + 1) {
+        self.next_word = match self.vec.get(self.index + 1) {
             Some(word) => *word,
             _ => return Some(1),
         };
-        self.next_two_word = match vec.get(self.index + 2) {
-            Some(word) => *word,
-            _ => return Some(2),
-        };
         None
+    }
+
+    pub fn get_next(&mut self) -> Word {
+        self.index += 1;
+        self.vec[self.index]
     }
 }
 
@@ -146,7 +147,7 @@ pub struct Indexing(pub u8);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DestReg(pub u8);
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SrcReg(pub u8);
 #[derive(Clone, Copy, Debug)]
 pub struct Bbit(pub bool);
@@ -166,6 +167,7 @@ pub enum Instruction {
         b: Bbit,
         dam: AddressMode,
         dest: DestReg,
+        dest_index: Option<Word>,
     },
     TWO {
         opcode: TwoOpcode,
@@ -174,6 +176,8 @@ pub enum Instruction {
         b: Bbit,
         sam: AddressMode,
         dest: DestReg,
+        src_index: Option<Word>,
+        dest_index: Option<Word>,
     },
 }
 
@@ -199,9 +203,10 @@ impl fmt::Display for Instruction {
                 b,
                 dam,
                 dest,
+                dest_index,
             } => {
                 if dam == &AddressMode::IndirectIncrement && dest == &DestReg(0) {
-                    //write!(f, "{opcode:?}{b} ")
+                    return write!(f, "{opcode:?}{b} #{:#x}", dest_index.unwrap().0);
                 }
 
                 let indirect = match dam {
@@ -212,7 +217,13 @@ impl fmt::Display for Instruction {
                     IndirectIncrement => "+",
                     _ => "",
                 };
-                write!(f, "{opcode:?}{b}  {indirect}{dest}{increment}")
+
+                let offset = match dest_index {
+                    Some(word) => format!("({:#x})", word.0),
+                    _ => "".to_owned(),
+                };
+
+                write!(f, "{opcode:?}{b}  {offset}{indirect}{dest}{increment}")
             }
             Instruction::TWO {
                 opcode,
@@ -221,7 +232,12 @@ impl fmt::Display for Instruction {
                 b,
                 sam,
                 dest,
+                src_index,
+                dest_index,
             } => {
+                if sam == &AddressMode::IndirectIncrement && src == &SrcReg(0) {
+                    return write!(f, "{opcode:?}{b} #{:#x}, {dest}", src_index.unwrap().0);
+                }
                 let indirect = match sam {
                     Indirect | IndirectIncrement => "@",
                     _ => "",
