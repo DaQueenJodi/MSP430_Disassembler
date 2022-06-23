@@ -1,12 +1,20 @@
-use std::{env::args, fmt::Binary, ops::Add};
+use std::{
+    env::args,
+    fmt::Binary,
+    ops::{Add, ControlFlow},
+};
 
 use bitvec::prelude::*;
 mod globals;
 use globals::*;
+mod pseudo;
+use pseudo::*;
+mod flow;
+use flow::*;
 
 fn main() {
     let mut word;
-    let path = "extras/welp.bin";
+    let path = "./output.bin";
     let capacity = std::fs::metadata(path).unwrap().len() as usize;
     let bytes = std::fs::read(path).unwrap();
     let mut binary_vec = Vec::with_capacity(capacity);
@@ -17,32 +25,33 @@ fn main() {
         binary_vec.push(word);
     }
 
-    let mut scope = CurrentBinaryScope {
-        index: (0),
-        current_word: Word(0),
-        next_word: Word(0),
-        vec: &binary_vec,
-    };
+    let mut scope = CurrentBinaryScope::new(&binary_vec);
 
-    let mut result = None;
+    let mut flowcontroller = FlowController::new();
+
     loop {
-        result = scope.step(result);
-        println!("{:#x}", scope.current_word.0);
+        scope.step();
+        //println!("{:#04x}", scope.current_word.0);
 
         let flavor = get_instruction_flavor(&scope);
-        let instruction = get_instruction(flavor, &mut scope);
+        let mut instruction = get_instruction(flavor, &mut scope);
+
+        match check_pseudo(instruction) {
+            Some(pseudo) => instruction = pseudo,
+            _ => (),
+        }
+
+        check_for_flow(&mut flowcontroller, &mut scope, instruction);
 
         println!(
-            "{:04x} {:x} {instruction}",
-            (scope.index - 1) * 8,
+            "{:04x}   {:04x}       {instruction}",
+            scope.address.0,
             scope.current_word.0.swap_bytes()
         );
     }
 }
 
 fn get_instruction(flavor: InstructionFlavor, scope: &mut CurrentBinaryScope) -> Instruction {
-    // indexing controlls wether or not the function requires an extra word or 2 in order to fully be completed
-
     let word = scope.current_word.0;
     let bits = word.view_bits::<Lsb0>();
 
@@ -73,8 +82,15 @@ fn get_instruction(flavor: InstructionFlavor, scope: &mut CurrentBinaryScope) ->
         });
     }
     if flavor == TWO {
-        let opcode = TWO_MAP.get(&bits[12..=15].load()).unwrap();
+        let opcode = match TWO_MAP.get(&bits[12..=15].load()) {
+            Some(opcode) => opcode,
+            _ => {
+                panic!("{:03b}", &bits[12..=15]);
+            }
+        };
+
         let src = SrcReg(bits[8..=11].load::<u8>().swap_bytes());
+
         let dam = ADDRESS_MODE_MAP
             .get(match bits[7] {
                 true => &1,
@@ -121,8 +137,10 @@ fn get_instruction(flavor: InstructionFlavor, scope: &mut CurrentBinaryScope) ->
         // JMP
 
         let condition = JUMP_MAP.get(&bits[10..=12].load()).unwrap();
-        let offset = Offset(bits[0..=9].load::<u16>().swap_bytes());
 
+        // dont need to worry about sign extension since bitvec is amazing. Still, thanks for Retr0id and Stuckpixel for helping me out with learning how to do it
+
+        let offset = Offset(((bits[0..=9].load::<i16>()) * 2) + 2); // These are all PC-relative jumps, adding twice the sign-extended offset to the PC, for a jump range of -1024 to +1022 (http://mspgcc.sourceforge.net/manual/x223.html)
         Instruction::JMP {
             condition: *condition,
             offset: offset,

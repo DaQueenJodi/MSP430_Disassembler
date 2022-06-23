@@ -1,7 +1,10 @@
 use bitvec::{prelude::*, slice::BitSlice};
+
 use core::fmt;
 use lazy_static::lazy_static;
 use std::{collections::HashMap, fmt::write};
+
+use crate::{flow::Address, pseudo::PsuedoOpcode};
 lazy_static! {
     pub static ref JUMP_MAP: HashMap<u8, JmpOpcode> = {
         use JmpOpcode::*;
@@ -57,7 +60,12 @@ lazy_static! {
     };
 }
 
+pub const PC: u8 = 0; // Program Counter
+pub const SP: u8 = 1; // Stack Pointer
+pub const SR: u8 = 2; // Status Register
+
 pub struct CurrentBinaryScope<'w> {
+    pub address: Address,
     pub index: usize,
     pub current_word: Word,
     pub next_word: Word,
@@ -65,33 +73,30 @@ pub struct CurrentBinaryScope<'w> {
 }
 
 impl CurrentBinaryScope<'_> {
-    // returns 0/1/2 depending on what offset of `vec` does not exist
-    pub fn step(&mut self, result: Option<u8>) -> Option<u8> {
+    pub fn new(binary_vec: &Vec<Word>) -> CurrentBinaryScope {
+        CurrentBinaryScope {
+            address: Address(0),
+            index: (0),
+            current_word: Word(0),
+            next_word: Word(0),
+            vec: binary_vec,
+        }
+    }
+    pub fn step(&mut self) {
         self.index += 1;
-
-        if result == Some(1) {
-            panic!("welp");
-        }
-
-        self.current_word = match self.vec.get(self.index) {
-            Some(word) => *word,
-            _ => return Some(0),
-        };
-
-        if result == Some(2) {
-            panic!("welp");
-        }
-
-        self.next_word = match self.vec.get(self.index + 1) {
-            Some(word) => *word,
-            _ => return Some(1),
-        };
-        None
+        self.update();
     }
 
     pub fn get_next(&mut self) -> Word {
         self.index += 1;
         self.vec[self.index]
+    }
+
+    pub fn update(&mut self) {
+        self.address = Address::from_index(self.index);
+        self.current_word = *self.vec.get(self.index).unwrap_or(&Word(0));
+
+        self.next_word = *self.vec.get(self.index + 1).unwrap_or(&Word(0))
     }
 }
 
@@ -109,7 +114,7 @@ pub enum JmpOpcode {
     JL,
     JMP,
 }
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OneOpcode {
     RRC,
     SWPB,
@@ -153,11 +158,11 @@ pub struct SrcReg(pub u8);
 pub struct Bbit(pub bool);
 
 #[derive(Clone, Copy, Debug)]
-pub struct Offset(pub u16);
+pub struct Offset(pub i16);
 
 #[derive(Clone, Copy, Debug)]
 pub enum Instruction {
-    None,
+    Invalid,
     JMP {
         condition: JmpOpcode,
         offset: Offset,
@@ -179,6 +184,11 @@ pub enum Instruction {
         src_index: Option<Word>,
         dest_index: Option<Word>,
     },
+    PSEUDO {
+        opcode: PsuedoOpcode,
+        b: Bbit,
+        dest: Option<DestReg>,
+    },
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -196,7 +206,13 @@ impl fmt::Display for Instruction {
                 condition, offset, ..
             } => {
                 let offset = offset.0;
-                write!(f, "{condition:?} {offset:#x}")
+                let pos_or_neg;
+                if offset >= 0 {
+                    pos_or_neg = "+";
+                } else {
+                    pos_or_neg = "-";
+                }
+                write!(f, "{condition:?}    ${pos_or_neg}{:#x}", offset.abs())
             }
             Instruction::ONE {
                 opcode,
@@ -206,7 +222,7 @@ impl fmt::Display for Instruction {
                 dest_index,
             } => {
                 if dam == &AddressMode::IndirectIncrement && dest == &DestReg(0) {
-                    return write!(f, "{opcode:?}{b} #{:#x}", dest_index.unwrap().0);
+                    return write!(f, "{opcode:?}   {b} #{:#x}", dest_index.unwrap().0);
                 }
 
                 let indirect = match dam {
@@ -223,7 +239,7 @@ impl fmt::Display for Instruction {
                     _ => "".to_owned(),
                 };
 
-                write!(f, "{opcode:?}{b}  {offset}{indirect}{dest}{increment}")
+                write!(f, "{opcode:?}{b}   {offset}{indirect}{dest}{increment}")
             }
             Instruction::TWO {
                 opcode,
@@ -235,8 +251,8 @@ impl fmt::Display for Instruction {
                 src_index,
                 dest_index,
             } => {
-                if sam == &AddressMode::IndirectIncrement && src == &SrcReg(0) {
-                    return write!(f, "{opcode:?}{b} #{:#x}, {dest}", src_index.unwrap().0);
+                if sam == &AddressMode::IndirectIncrement && src.0 == PC {
+                    return write!(f, "{opcode:?}{b}    #{:#x}, {dest}", src_index.unwrap().0);
                 }
                 let indirect = match sam {
                     Indirect | IndirectIncrement => "@",
@@ -246,9 +262,16 @@ impl fmt::Display for Instruction {
                     IndirectIncrement => "+",
                     _ => "",
                 };
-                write!(f, "{opcode:?}{b}  {indirect}{src}{increment}, {dest}")
+                write!(f, "{opcode:?}{b}    {indirect}{src}{increment}, {dest}")
             }
-            Instruction::None => {
+            Instruction::PSEUDO { opcode, b, dest } => {
+                let dest = match dest {
+                    Some(dest) => format!("{dest}"),
+                    _ => "".to_owned(),
+                };
+                write!(f, "{opcode:?}{b}    {dest}")
+            }
+            Instruction::Invalid => {
                 write!(f, "Invalid Instruction!")
             }
         }
@@ -261,7 +284,7 @@ impl fmt::Display for Bbit {
             f,
             "{}",
             match self.0 {
-                true => ".b",
+                true => ".B",
                 false => "",
             }
         )
@@ -270,12 +293,25 @@ impl fmt::Display for Bbit {
 
 impl fmt::Display for SrcReg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "r{}", self.0)
+        let r = match self.0 {
+            0 => "PC".to_owned(),
+            1 => "SP".to_owned(),
+            2 => "SR".to_owned(),
+            num => format!("r{num}"),
+        };
+
+        write!(f, "{r}")
     }
 }
 
 impl fmt::Display for DestReg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "r{}", self.0)
+        let r = match self.0 {
+            0 => "PC".to_owned(),
+            1 => "SP".to_owned(),
+            2 => "SR".to_owned(),
+            num => format!("r{num}"),
+        };
+        write!(f, "{r}")
     }
 }
