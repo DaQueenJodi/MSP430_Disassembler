@@ -26,7 +26,13 @@ pub fn check_for_flow(
         Instruction::JMP { condition, offset } => {
             flowcontroller.flow_add_to_queue_offset(scope, offset);
         }
-        Instruction::PSEUDO { opcode, b, dest } => {
+        Instruction::PSEUDO {
+            dest_index,
+            opcode,
+            b,
+            dam,
+            dest,
+        } => {
             if opcode == PsuedoOpcode::RET {
                 flowcontroller.flow_return(scope);
             }
@@ -52,6 +58,7 @@ pub struct Address(pub u64);
 
 impl Address {
     pub fn from_index(index: usize) -> Address {
+        //   println!("{index}");
         Address(
             ((index as u64 - 1 as u64) * 2)
                 .try_into()
@@ -59,7 +66,7 @@ impl Address {
         )
     }
     pub fn to_index(&self) -> usize {
-        ((self.0 / 16) + 1) as usize
+        (self.0 + 2 / 2) as usize
     }
 }
 
@@ -68,7 +75,8 @@ impl CurrentBinaryScope<'_> {
         self.index = (Address::from_index(self.index) + offset.0).to_index();
         self.update();
     }
-    pub fn jump_to_absolute(&mut self, address: Address) {
+    pub fn jump_to_absolute(&mut self, mut address: Address) {
+        address.0 -= 0x8000;
         self.index = address.to_index();
     }
 }
@@ -130,7 +138,9 @@ impl FlowController {
                 .contains(&Address(self.BRANCH_QUEUE.pop().unwrap().0))
             {}
         } else {
-            scope.jump_to_absolute(Address(self.CALL_QUEUE.pop().unwrap().0));
+            if !self.CALL_QUEUE.is_empty() {
+                scope.jump_to_absolute(Address(self.CALL_QUEUE.pop().unwrap().0));
+            }
         }
     }
 

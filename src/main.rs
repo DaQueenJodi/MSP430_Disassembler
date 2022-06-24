@@ -31,23 +31,22 @@ fn main() {
 
     loop {
         scope.step();
-        //println!("{:#04x}", scope.current_word.0);
+
+        let address = scope.address.0; // stores initial address instead of final address
+                                       // println!("{address:04x}");
+                                       // println!("{:#04x}", scope.current_word.0);
 
         let flavor = get_instruction_flavor(&scope);
-        let mut instruction = get_instruction(flavor, &mut scope);
+        let mut instruction = check_special_am(&get_instruction(flavor, &mut scope));
 
         match check_pseudo(instruction) {
             Some(pseudo) => instruction = pseudo,
             _ => (),
         }
 
-        check_for_flow(&mut flowcontroller, &mut scope, instruction);
+        // check_for_flow(&mut flowcontroller, &mut scope, instruction);
 
-        println!(
-            "{:04x}   {:04x}       {instruction}",
-            scope.address.0,
-            scope.current_word.0.swap_bytes()
-        );
+        println!("{:04x}   {}       {instruction}", address, scope.used_words,);
     }
 }
 
@@ -55,16 +54,24 @@ fn get_instruction(flavor: InstructionFlavor, scope: &mut CurrentBinaryScope) ->
     let word = scope.current_word.0;
     let bits = word.view_bits::<Lsb0>();
 
+    // println!("{:016b}", &bits[0..=15]);
+
     use InstructionFlavor::*;
 
     if flavor == ONE {
         let opcode = ONE_MAP.get(&bits[7..=9].load()).unwrap();
         let b = Bbit(bits[6]);
-        let dam = ADDRESS_MODE_MAP.get(&bits[4..=5].load::<u8>()).unwrap();
         let dest_reg = DestReg(bits[0..=3].load());
+        let dam = match dest_reg.0 {
+            SR => ADDRESS_MODE_SR_MAP.get(&bits[4..=5].load::<u8>()).unwrap(),
+            ZR => ADDRESS_MODE_ZERO_MAP
+                .get(&bits[4..=5].load::<u8>())
+                .unwrap(),
+            _ => ADDRESS_MODE_MAP.get(&bits[4..=5].load::<u8>()).unwrap(),
+        };
         let dest_index = match dam {
             &AddressMode::IndirectIncrement => {
-                if dest_reg == DestReg(0) {
+                if dest_reg.0 == PC {
                     Some(Word(scope.get_next().0))
                 } else {
                     None
@@ -81,55 +88,71 @@ fn get_instruction(flavor: InstructionFlavor, scope: &mut CurrentBinaryScope) ->
             dest_index: dest_index,
         });
     }
+
     if flavor == TWO {
-        let opcode = match TWO_MAP.get(&bits[12..=15].load()) {
-            Some(opcode) => opcode,
-            _ => {
-                panic!("{:03b}", &bits[12..=15]);
-            }
-        };
+        // println!("{:#x}", scope.current_word.0);
+        // println!("{:016b}", &bits[0..=15]);
 
-        let src = SrcReg(bits[8..=11].load::<u8>().swap_bytes());
+        let opcode = TWO_MAP.get(&bits[12..=15].load()).unwrap();
 
-        let dam = ADDRESS_MODE_MAP
-            .get(match bits[7] {
-                true => &1,
-                false => &0,
-            })
-            .unwrap();
+        let src_reg = SrcReg(bits[8..=11].load::<u8>().swap_bytes());
 
         let b = Bbit(bits[6]);
-        let sam = ADDRESS_MODE_MAP.get(&bits[4..=5].load()).unwrap();
-        let dest = DestReg(bits[0..=3].load::<u8>().swap_bytes());
+
+        let dest_reg = DestReg(bits[0..=3].load::<u8>().swap_bytes());
+
+        let sam = match src_reg.0 {
+            SR => ADDRESS_MODE_SR_MAP.get(&bits[4..=5].load::<u8>()).unwrap(),
+            ZR => ADDRESS_MODE_ZERO_MAP
+                .get(&bits[4..=5].load::<u8>())
+                .unwrap(),
+            _ => ADDRESS_MODE_MAP.get(&bits[4..=5].load::<u8>()).unwrap(),
+        };
+
+        let bool_int = match bits[7] {
+            true => 1,
+            false => 0,
+        };
+
+        let dam = match dest_reg.0 {
+            SR => ADDRESS_MODE_SR_MAP.get(&bool_int).unwrap(),
+            ZR => ADDRESS_MODE_ZERO_MAP.get(&bool_int).unwrap(),
+            _ => ADDRESS_MODE_MAP.get(&bool_int).unwrap(),
+        };
+
         let src_index = match sam {
             &AddressMode::IndirectIncrement => {
-                if src == SrcReg(0) {
+                if src_reg.0 == PC {
                     Some(Word(scope.get_next().0))
                 } else {
                     None
                 }
             }
-            &AddressMode::Indexed => Some(Word(scope.get_next().0.swap_bytes())),
+            &AddressMode::Indexed | &AddressMode::AbsoluteAddressing => {
+                Some(Word(scope.get_next().0))
+            }
             _ => None,
         };
         let dest_index = match dam {
             &AddressMode::IndirectIncrement => {
-                if dest == DestReg(0) {
+                if dest_reg.0 == PC {
                     Some(Word(scope.get_next().0))
                 } else {
                     None
                 }
             }
-            &AddressMode::Indexed => Some(Word(scope.get_next().0.swap_bytes())),
+            &AddressMode::Indexed | &AddressMode::AbsoluteAddressing => {
+                Some(Word(scope.get_next().0))
+            }
             _ => None,
         };
         Instruction::TWO {
             opcode: *opcode,
-            src: src,
+            src: src_reg,
             dam: *dam,
             b: b,
             sam: *sam,
-            dest: dest,
+            dest: dest_reg,
             src_index: src_index,
             dest_index: dest_index,
         }

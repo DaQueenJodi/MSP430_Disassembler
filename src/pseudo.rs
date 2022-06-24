@@ -56,7 +56,9 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                 MOV => {
                     if src.0 == PC && sam == IndirectIncrement && src_index.unwrap().0 == 0 {
                         return Some(PSEUDO {
+                            dest_index: dest_index,
                             opcode: CLR,
+                            dam: dam,
                             b: b,
                             dest: Some(dest),
                         });
@@ -64,7 +66,9 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
 
                     if dest.0 == src.0 && sam == Direct && dam == Direct {
                         return Some(PSEUDO {
+                            dest_index: dest_index,
                             opcode: NOP,
+                            dam: dam,
                             b: b,
                             dest: None,
                         });
@@ -73,12 +77,16 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                         if dest.0 == PC {
                             return Some(PSEUDO {
                                 opcode: RET,
+                                dam: dam,
                                 b: b,
                                 dest: None,
+                                dest_index: dest_index,
                             });
                         } else {
                             return Some(PSEUDO {
+                                dest_index: dest_index,
                                 opcode: POP,
+                                dam: dam,
                                 b: b,
                                 dest: Some(dest),
                             });
@@ -86,7 +94,9 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                     }
                     if dest.0 == PC && dam == Direct {
                         return Some(PSEUDO {
+                            dest_index: dest_index,
                             opcode: BR,
+                            dam: dam,
                             b: b,
                             dest: Some(DestReg(src.0)),
                         });
@@ -99,6 +109,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                         match src_index.unwrap().0 {
                             1 => {
                                 return Some(PSEUDO {
+                                    dest_index: dest_index,
+                                    dam: dam,
                                     opcode: CLRC,
                                     b: b,
                                     dest: None,
@@ -106,6 +118,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                             }
                             2 => {
                                 return Some(PSEUDO {
+                                    dest_index: dest_index,
+                                    dam: dam,
                                     opcode: CLRZ,
                                     b: b,
                                     dest: None,
@@ -113,13 +127,17 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                             }
                             4 => {
                                 return Some(PSEUDO {
+                                    dest_index: dest_index,
                                     opcode: CLRN,
+                                    dam: dam,
                                     b: b,
                                     dest: None,
                                 })
                             }
                             8 => {
                                 return Some(PSEUDO {
+                                    dest_index: dest_index,
+                                    dam: dam,
                                     opcode: DINT,
                                     b: b,
                                     dest: None,
@@ -136,6 +154,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                         match src_index.unwrap().0 {
                             1 => {
                                 return Some(PSEUDO {
+                                    dest_index: dest_index,
+                                    dam: dam,
                                     opcode: SETC,
                                     b: b,
                                     dest: None,
@@ -143,6 +163,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                             }
                             2 => {
                                 return Some(PSEUDO {
+                                    dest_index: dest_index,
+                                    dam: dam,
                                     opcode: SETZ,
                                     b: b,
                                     dest: None,
@@ -150,6 +172,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                             }
                             4 => {
                                 return Some(PSEUDO {
+                                    dest_index: dest_index,
+                                    dam: dam,
                                     opcode: SETN,
                                     b: b,
                                     dest: None,
@@ -157,6 +181,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                             }
                             8 => {
                                 return Some(PSEUDO {
+                                    dest_index: dest_index,
+                                    dam: dam,
                                     opcode: EINT,
                                     b: b,
                                     dest: None,
@@ -170,6 +196,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                 ADD => {
                     if dest.0 == src.0 {
                         return Some(PSEUDO {
+                            dest_index: dest_index,
+                            dam: dam,
                             opcode: RLA,
                             b: b,
                             dest: Some(dest),
@@ -180,6 +208,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                 ADDC => {
                     if dest.0 == src.0 {
                         return Some(PSEUDO {
+                            dest_index: dest_index,
+                            dam: dam,
                             opcode: RLA,
                             b: b,
                             dest: Some(dest),
@@ -197,6 +227,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                 CMP => {
                     if src.0 == PC && sam == IndirectIncrement && src_index.unwrap().0 == 0 {
                         return Some(PSEUDO {
+                            dest_index: dest_index,
+                            dam: dam,
                             opcode: TST,
                             b: b,
                             dest: Some(dest),
@@ -207,6 +239,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                 SUB => {
                     if src.0 == PC && sam == IndirectIncrement && src_index.unwrap().0 == 1 {
                         return Some(PSEUDO {
+                            dest_index: dest_index,
+                            dam: dam,
                             opcode: DEC,
                             b: b,
                             dest: Some(dest),
@@ -217,6 +251,8 @@ pub fn check_pseudo(instruction: Instruction) -> Option<Instruction> {
                 ADD => {
                     if src.0 == PC && sam == IndirectIncrement && src_index.unwrap().0 == 1 {
                         return Some(PSEUDO {
+                            dest_index: dest_index,
+                            dam: dam,
                             opcode: INC,
                             b: b,
                             dest: Some(dest),
